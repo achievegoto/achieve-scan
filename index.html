@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4b2a7b">
+<title>achieve バーコードスキャン</title>
+<style>
+:root {
+  --bg: #f4f3f7; --card: #fff; --ink: #1d1a24; --muted: #6c6679; --line: #e3e0ea;
+  --accent: #4b2a7b; --accent-soft: #efe9f8; --ok: #1f7a4d; --ok-soft: #e4f4ec; --bad: #b3261e; --bad-soft: #fbe9e7;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+body { padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) calc(96px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+header { display: flex; align-items: baseline; gap: 8px; padding: 12px 2px 8px; }
+header h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+header a { margin-left: auto; font-size: 13px; color: var(--accent); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg button { flex: 1 1 auto; min-width: 0; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 99px; padding: 8px 6px; font: inherit; font-size: 13px; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.row2 { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.label { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+.cam { position: relative; border-radius: 14px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; max-height: 46vh; width: 100%; }
+.cam video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cam .guide { position: absolute; left: 10%; right: 10%; top: 38%; height: 24%; border: 3px solid rgba(255,255,255,.85); border-radius: 10px; box-shadow: 0 0 0 999px rgba(0,0,0,.25); pointer-events: none; transition: border-color .15s; }
+.cam.hit .guide { border-color: #4ade80; }
+.cam .msg { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px; background: linear-gradient(transparent, rgba(0,0,0,.7)); color: #fff; font-size: 14px; min-height: 2.2em; }
+.cam .off { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; text-align: center; padding: 16px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 10px; padding: 10px 14px; font: inherit; font-weight: 600; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { opacity: .45; }
+.btn.big { width: 100%; padding: 14px; font-size: 16px; }
+select, input[type=search] { width: 100%; font: inherit; font-size: 15px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); }
+.list { display: grid; gap: 8px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; border-top: 1px solid var(--line); padding-top: 8px; }
+.item:first-child { border-top: 0; padding-top: 0; }
+.item .name { font-weight: 600; overflow-wrap: anywhere; }
+.item .sub { font-size: 12px; color: var(--muted); }
+.item select { margin-top: 4px; }
+.qty { display: flex; align-items: center; gap: 4px; }
+.qty button { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: #fff; font-size: 18px; line-height: 1; }
+.qty b { min-width: 2ch; text-align: center; font-size: 17px; }
+.pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; background: var(--ok-soft); color: var(--ok); white-space: nowrap; }
+.pill.new { background: var(--accent-soft); color: var(--accent); }
+.empty { color: var(--muted); text-align: center; padding: 14px 0; font-size: 14px; }
+.foot { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px max(12px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); background: rgba(244,243,247,.94); backdrop-filter: blur(8px); border-top: 1px solid var(--line); display: flex; gap: 8px; }
+.foot .btn.primary { flex: 1; }
+.toast { position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top)); transform: translateX(-50%); background: #1d1a24; color: #fff; padding: 8px 14px; border-radius: 99px; font-size: 14px; z-index: 9; max-width: 92vw; }
+.err { background: var(--bad-soft); color: var(--bad); border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header><h1>バーコードスキャン</h1><a id="app-link" href="#">在庫アプリへ</a></header>
+
+<section class="card row2">
+  <div>
+    <p class="label">すること</p>
+    <div class="seg" id="modes">
+      <button type="button" data-mode="receive">入荷（足す）</button>
+      <button type="button" data-mode="count">棚卸し（上書き）</button>
+      <button type="button" data-mode="link">登録だけ</button>
+    </div>
+  </div>
+  <div id="store-wrap">
+    <p class="label">店舗</p>
+    <div class="seg" id="stores"></div>
+  </div>
+  <div class="hint" id="mode-hint"></div>
+</section>
+
+<div class="cam" id="cam">
+  <video id="video" playsinline muted autoplay></video>
+  <div class="guide"></div>
+  <div class="off" id="cam-off"><div><button type="button" class="btn primary" id="start">📷 カメラを起動</button><div class="hint" style="color:#ddd">カメラの使用を「許可」してください</div></div></div>
+  <div class="msg" id="cam-msg" hidden></div>
+</div>
+
+<section class="card" style="margin-top:12px">
+  <div id="load-err" class="err" hidden></div>
+  <div class="list" id="list"><div class="empty">バーコードを枠に入れると自動で読み取ります</div></div>
+</section>
+
+<div class="foot">
+  <button type="button" class="btn" id="clear">クリア</button>
+  <button type="button" class="btn primary" id="apply" disabled>反映する</button>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+const API = 'https://script.google.com/macros/s/AKfycbzLd5HUcScSlTagl3Jt6GWBgOsWNqdW9Z6NbOzbIh3wwQzLNQ0oeRQJO2SeZbj6MZYJgw/exec';
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const store = { get(k, d) { try { return localStorage.getItem(k) || d; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
+const S = { data: { stores: [], items: [], stock: {} }, store: store.get('store', 'hair'), mode: store.get('mode', 'receive'), rows: [], last: {}, busy: false, running: false };
+let byJan = new Map();
+
+$('app-link').href = API;
+
+const janKey = j => String(j || '').replace(/\D/g, '').replace(/^0+/, '');
+function janOk(c) {
+  if (!/^(\d{8}|\d{12}|\d{13})$/.test(c)) return false;
+  const d = c.split('').map(Number), chk = d.pop();
+  let sum = 0; d.reverse().forEach((n, i) => { sum += n * (i % 2 === 0 ? 3 : 1); });
+  return (10 - sum % 10) % 10 === chk;
+}
+function setData(d) {
+  S.data = d || S.data;
+  byJan = new Map();
+  S.data.items.forEach(it => String(it.jan || '').split(',').forEach(j => { const k = janKey(j); if (k) byJan.set(k, it); }));
+  S.rows.forEach(r => { if (!r.known) { const it = byJan.get(janKey(r.jan)); if (it) { r.id = it.id; r.known = true; } } });
+}
+const itemOf = id => S.data.items.find(i => i.id === id);
+const stockOf = id => Number(S.data.stock[S.store + '_' + id] || 0);
+
+let toastT;
+function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, 2200); }
+
+/* ---- 音とバイブ ---- */
+let actx;
+function beep(ok) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.frequency.value = ok ? 1320 : 440; g.gain.value = 0.12;
+    o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + (ok ? 0.09 : 0.22));
+  } catch (e) {}
+  try { navigator.vibrate && navigator.vibrate(ok ? 40 : [60, 60, 60]); } catch (e) {}
+}
+
+/* ---- 読み取った時 ---- */
+function onCode(raw) {
+  let code = String(raw || '').replace(/\D/g, '');
+  if (code.length === 12) code = '0' + code;
+  if (!janOk(code)) return;
+  const now = Date.now();
+  if (S.last[code] && now - S.last[code] < 1800) { S.last[code] = now; return; }
+  S.last[code] = now;
+  const it = byJan.get(janKey(code));
+  let r = S.rows.find(x => (it && x.id === it.id) || janKey(x.jan) === janKey(code));
+  if (S.mode === 'link' && it) {
+    flash(true, '登録済み：' + it.name); beep(true);
+    if (!r) S.rows.unshift({ jan: code, id: it.id, qty: 1, known: true });
+    render(); return;
+  }
+  if (r) r.qty += 1; else { r = { jan: code, id: it ? it.id : '', qty: 1, known: !!it }; S.rows.unshift(r); }
+  flash(true, it ? it.name + (S.mode === 'link' ? '' : '　' + r.qty) : '新しいバーコード ' + code + '：下で商品を選んでください');
+  beep(!!it);
+  render();
+}
+let flashT;
+function flash(ok, text) {
+  const cam = $('cam'), m = $('cam-msg');
+  cam.classList.add('hit'); m.hidden = false; m.textContent = (ok ? '✓ ' : '') + text;
+  clearTimeout(flashT); flashT = setTimeout(() => cam.classList.remove('hit'), 350);
+}
+
+/* ---- カメラ ---- */
+let stream = null, timer = null, reader = null;
+async function startCam() {
+  $('cam-off').hidden = true;
+  try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume && actx.resume(); } catch (e) {}
+  const video = $('video');
+  try {
+    let native = false;
+    if ('BarcodeDetector' in window) {
+      try { native = (await BarcodeDetector.getSupportedFormats()).includes('ean_13'); } catch (e) {}
+    }
+    if (native) {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
+      video.srcObject = stream; await video.play();
+      const det = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
+      const tick = async () => {
+        if (!stream) return;
+        try { (await det.detect(video)).forEach(r => onCode(r.rawValue)); } catch (e) {}
+        timer = setTimeout(tick, 120);
+      };
+      tick();
+    } else {
+      const Z = window.ZXing;
+      if (!Z) throw new Error('読み取りの部品を読み込めませんでした。通信を確認して開き直してください');
+      const hints = new Map();
+      hints.set(Z.DecodeHintType.POSSIBLE_FORMATS, [Z.BarcodeFormat.EAN_13, Z.BarcodeFormat.EAN_8, Z.BarcodeFormat.UPC_A, Z.BarcodeFormat.UPC_E]);
+      reader = new Z.BrowserMultiFormatReader(hints, 150);
+      await reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } }, video, res => { if (res) onCode(res.getText()); });
+      stream = video.srcObject;
+    }
+    S.running = true;
+    $('cam-msg').hidden = false; $('cam-msg').textContent = 'バーコードを枠に入れてください';
+  } catch (e) {
+    stopCam();
+    $('cam-off').hidden = false;
+    const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+    $('cam-off').querySelector('.hint').textContent = denied ? 'カメラが許可されていません。ブラウザの設定でこのページのカメラを「許可」にしてから、もう一度押してください' : ((e && e.message) || 'カメラを起動できませんでした');
+  }
+}
+function stopCam() {
+  clearTimeout(timer); timer = null;
+  try { reader && reader.reset(); } catch (e) {} reader = null;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; S.running = false;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && S.running) { stopCam(); $('cam-off').hidden = false; $('cam-msg').hidden = true; }
+});
+
+/* ---- 画面 ---- */
+let optsCache = '';
+function options() {
+  if (optsCache) return optsCache;
+  const g = {};
+  S.data.items.forEach(it => (g[it.category || 'その他'] ||= []).push(it));
+  optsCache = '<option value="">どの商品？（次から自動で分かります）</option>' + Object.entries(g).map(([c, arr]) =>
+    `<optgroup label="${esc(c)}">${arr.map(it => `<option value="${esc(it.id)}">${esc(it.name)}${it.jan ? '' : '　（未登録）'}</option>`).join('')}</optgroup>`).join('');
+  return optsCache;
+}
+function render() {
+  document.querySelectorAll('#modes button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
+  $('stores').innerHTML = S.data.stores.map(s => `<button type="button" data-store="${esc(s.id)}" aria-pressed="${s.id === S.store}">${esc(s.name)}</button>`).join('');
+  $('store-wrap').hidden = S.mode === 'link';
+  const noJan = S.data.items.filter(it => !String(it.jan || '').trim()).length;
+  $('mode-hint').textContent = S.mode === 'link' ? `在庫の数は変わりません。バーコードと商品を結びつけるだけです（まだ登録していない商品：${noJan}件）`
+    : S.mode === 'count' ? '読み取った数で在庫を上書きします。同じ商品は1個ずつ枠に入れ直すと数が増えます（読み取っていない商品は変わりません）'
+    : '読み取った数を在庫に足します。同じ商品は1個ずつ枠に入れ直すと数が増えます';
+  const link = S.mode === 'link';
+  $('list').innerHTML = S.rows.length ? S.rows.map((r, i) => {
+    const it = r.id && itemOf(r.id);
+    const head = r.known && it ? `<div class="name">${esc(it.name)}</div>`
+      : `<div class="sub"><span class="pill new">新しいバーコード</span> ${esc(r.jan)}</div><select data-pick="${i}" aria-label="どの商品か選ぶ">${options()}</select>`;
+    const sub = !link && S.mode === 'count' && r.id ? `<div class="sub">今の在庫 ${stockOf(r.id)} → ${r.qty}</div>` : !link && r.id ? `<div class="sub">今の在庫 ${stockOf(r.id)} → ${stockOf(r.id) + r.qty}</div>` : '';
+    const right = link ? (r.known ? '<span class="pill">登録済み</span>' : '')
+      : `<div class="qty"><button type="button" data-dec="${i}" aria-label="1減らす">−</button><b>${r.qty}</b><button type="button" data-inc="${i}" aria-label="1増やす">＋</button></div>`;
+    return `<div class="item"><div style="min-width:0">${head}${sub}</div>${right}</div>`;
+  }).join('') : '<div class="empty">バーコードを枠に入れると自動で読み取ります</div>';
+  S.rows.forEach((r, i) => { const el = document.querySelector(`[data-pick="${i}"]`); if (el) el.value = r.id || ''; });
+  const n = lines().length;
+  $('apply').disabled = !n || S.busy;
+  $('apply').textContent = S.busy ? '送信中…' : link ? `${n}件のバーコードを登録` : `${n}件を${S.mode === 'count' ? '在庫に上書き' : '在庫に足す'}`;
+  $('clear').disabled = !S.rows.length;
+}
+function lines() {
+  const link = S.mode === 'link', by = new Map();
+  S.rows.forEach(r => {
+    if (!r.id) return;
+    const jan = r.known ? '' : r.jan;
+    if (link && !jan) return;
+    if (!link && S.mode !== 'count' && r.qty <= 0) return;
+    const m = by.get(r.id);
+    if (m) { m.qty += r.qty; if (jan) m.jan = m.jan ? m.jan + ',' + jan : jan; }
+    else by.set(r.id, { id: r.id, qty: link ? 0 : r.qty, jan });
+  });
+  return [...by.values()];
+}
+
+/* ---- 通信 ---- */
+async function post(body) {
+  const res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+  const j = await res.json();
+  if (!j.ok) throw new Error(j.error || '送信に失敗しました');
+  return j.data;
+}
+async function load() {
+  try {
+    const res = await fetch(API + '?api=items');
+    setData(await res.json());
+    $('load-err').hidden = true;
+  } catch (e) {
+    $('load-err').hidden = false; $('load-err').textContent = '商品の一覧を読み込めませんでした。通信を確認して開き直してください。';
+  }
+  render();
+}
+async function apply() {
+  const ls = lines(); if (!ls.length || S.busy) return;
+  S.busy = true; render();
+  try {
+    const d = await post({ action: 'apply', store: S.store, mode: S.mode, lines: ls });
+    optsCache = ''; setData(d);
+    const label = S.mode === 'link' ? '件のバーコードを登録しました' : S.mode === 'count' ? '件の在庫を上書きしました' : '件を在庫に足しました';
+    S.rows = []; S.last = {};
+    toast(ls.length + label);
+  } catch (e) { toast((e && e.message) || '送信に失敗しました'); }
+  S.busy = false; render();
+}
+
+/* ---- 操作 ---- */
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('button'); if (!b) return;
+  if (b.id === 'start') return startCam();
+  if (b.id === 'apply') return apply();
+  if (b.id === 'clear') { S.rows = []; S.last = {}; render(); return; }
+  if (b.dataset.mode) { S.mode = b.dataset.mode; store.set('mode', S.mode); render(); return; }
+  if (b.dataset.store) { S.store = b.dataset.store; store.set('store', S.store); render(); return; }
+  if (b.dataset.inc) { S.rows[+b.dataset.inc].qty += 1; render(); return; }
+  if (b.dataset.dec) { const r = S.rows[+b.dataset.dec]; r.qty -= 1; if (r.qty <= 0) S.rows.splice(+b.dataset.dec, 1); render(); return; }
+});
+document.addEventListener('change', ev => {
+  const el = ev.target;
+  if (el.dataset.pick !== undefined) { S.rows[+el.dataset.pick].id = el.value; render(); }
+});
+window.addEventListener('beforeunload', ev => { if (lines().length) { ev.preventDefault(); ev.returnValue = ''; } });
+
+render();
+load();
+</script>
+</body>
+</html>
