@@ -166,18 +166,22 @@ async function startCam() {
   try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume && actx.resume(); } catch (e) {}
   const video = $('video');
   try {
-    let native = false;
+    const FMT = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
+    let det = null, gap = 120;
     if ('BarcodeDetector' in window) {
-      try { native = (await BarcodeDetector.getSupportedFormats()).includes('ean_13'); } catch (e) {}
+      try { if ((await BarcodeDetector.getSupportedFormats()).includes('ean_13')) det = new BarcodeDetector({ formats: FMT }); } catch (e) {}
     }
-    if (native) {
+    /* iPhoneなど端末に読み取り機能がないとき：ZXing-C++（WASM版）を使う。無料・端末内で処理 */
+    if (!det) {
+      try { const m = await import('https://cdn.jsdelivr.net/npm/barcode-detector@3.2.3/+esm'); det = new m.BarcodeDetector({ formats: FMT }); gap = 180; } catch (e) { det = null; }
+    }
+    if (det) {
       stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
       video.srcObject = stream; await video.play();
-      const det = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e'] });
       const tick = async () => {
         if (!stream) return;
         try { (await det.detect(video)).forEach(r => onCode(r.rawValue)); } catch (e) {}
-        timer = setTimeout(tick, 120);
+        timer = setTimeout(tick, gap);
       };
       tick();
     } else {
